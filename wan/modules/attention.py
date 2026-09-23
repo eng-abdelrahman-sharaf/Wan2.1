@@ -128,12 +128,6 @@ def flash_attention(
         # Fallback to standard attention when flash attention is not available
         warnings.warn('Flash attention not available, using standard attention (slower)')
         
-        # Debug prints
-        print(f"[DEBUG] flash_attention fallback:")
-        print(f"  q device: {q.device}, k device: {k.device}, v device: {v.device}")
-        print(f"  q_lens device: {q_lens.device if q_lens is not None else None}")
-        print(f"  k_lens device: {k_lens.device if k_lens is not None else None}")
-        
         # Handle variable-length sequences by unflattening and using padding masks
         if q_lens is not None or k_lens is not None:
             # Unflatten q, k, v to [b, max_seq, num_heads, head_dim]
