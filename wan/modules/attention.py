@@ -127,23 +127,36 @@ def flash_attention(
     else:
         # Fallback to standard attention when flash attention is not available
         warnings.warn('Flash attention not available, using standard attention (slower)')
+        # Debug prints to understand tensor shapes
+        print(f"[DEBUG] flash_attention fallback:")
+        print(f"  q shape: {q.shape}, k shape: {k.shape}, v shape: {v.shape}")
+        print(f"  b={b}, lq={lq}, lk={lk}")
+        print(f"  q_lens: {q_lens}, k_lens: {k_lens}")
+        print(f"  dtype: {dtype}")
+        
         # Only support simple case where no variable-length sequences
         if q_lens is not None or k_lens is not None:
             raise NotImplementedError(
-                "Fallback attention does not support variable-length sequences. "
-                "Please install flash-attn: pip install flash-attn"
+                f"Fallback attention does not support variable-length sequences. "
+                f"q_lens={q_lens}, k_lens={k_lens}. "
+                f"Please install flash-attn: pip install flash-attn"
             )
         # Handle case where q and k may have different sequence lengths (cross-attention)
         q_seq_len = q.size(1)
         k_seq_len = k.size(1)
+        print(f"  q_seq_len={q_seq_len}, k_seq_len={k_seq_len}")
         q = q.transpose(1, 2).to(dtype)
         k = k.transpose(1, 2).to(dtype)
         v = v.transpose(1, 2).to(dtype)
+        print(f"  After transpose: q shape: {q.shape}, k shape: {k.shape}, v shape: {v.shape}")
         x = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, is_causal=causal, dropout_p=dropout_p)
+        print(f"  After attention: x shape: {x.shape}")
         x = x.transpose(1, 2).contiguous()
+        print(f"  After transpose back: x shape: {x.shape}")
         # Reshape to match original q shape
         x = x.view(b, q_seq_len, -1)
+        print(f"  Final x shape: {x.shape}")
 
     # output
     return x.type(out_dtype)
