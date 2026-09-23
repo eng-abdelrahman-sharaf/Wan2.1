@@ -127,36 +127,45 @@ def flash_attention(
     else:
         # Fallback to standard attention when flash attention is not available
         warnings.warn('Flash attention not available, using standard attention (slower)')
-        # Debug prints to understand tensor shapes
-        print(f"[DEBUG] flash_attention fallback:")
-        print(f"  q shape: {q.shape}, k shape: {k.shape}, v shape: {v.shape}")
-        print(f"  b={b}, lq={lq}, lk={lk}")
-        print(f"  q_lens: {q_lens}, k_lens: {k_lens}")
-        print(f"  dtype: {dtype}")
         
-        # Only support simple case where no variable-length sequences
+        # Handle variable-length sequences by unflattening and using padding masks
         if q_lens is not None or k_lens is not None:
-            raise NotImplementedError(
-                f"Fallback attention does not support variable-length sequences. "
-                f"q_lens={q_lens}, k_lens={k_lens}. "
-                f"Please install flash-attn: pip install flash-attn"
-            )
-        # Handle case where q and k may have different sequence lengths (cross-attention)
-        q_seq_len = q.size(1)
-        k_seq_len = k.size(1)
-        print(f"  q_seq_len={q_seq_len}, k_seq_len={k_seq_len}")
-        q = q.transpose(1, 2).to(dtype)
-        k = k.transpose(1, 2).to(dtype)
-        v = v.transpose(1, 2).to(dtype)
-        print(f"  After transpose: q shape: {q.shape}, k shape: {k.shape}, v shape: {v.shape}")
-        x = torch.nn.functional.scaled_dot_product_attention(
-            q, k, v, is_causal=causal, dropout_p=dropout_p)
-        print(f"  After attention: x shape: {x.shape}")
-        x = x.transpose(1, 2).contiguous()
-        print(f"  After transpose back: x shape: {x.shape}")
-        # Reshape to match original q shape
-        x = x.view(b, q_seq_len, -1)
-        print(f"  Final x shape: {x.shape}")
+            # Unflatten q, k, v to [b, max_seq, num_heads, head_dim]
+            q = q.view(b, lq, -1, q.size(-1))  # [b, lq, num_heads, head_dim]
+            k = k.view(b, lk, -1, k.size(-1))
+            v = v.view(b, lk, -1, v.size(-1))
+            
+            # Transpose to [b, num_heads, seq, head_dim] for standard attention
+            q = q.transpose(1, 2).to(dtype)  # [b, num_heads, lq, head_dim]
+            k = k.transpose(1, 2).to(dtype)  # [b, num_heads, lk, head_dim]
+            v = v.transpose(1, 2).to(dtype)  # [b, num_heads, lk, head_dim]
+            
+            # Create attention mask for variable-length sequences
+            if k_lens is not None:
+                # Create mask: [b, 1, lq, lk] where True means valid position
+                mask = torch.arange(lk, device=q.device).unsqueeze(0).unsqueeze(0) < k_lens.unsqueeze(1).unsqueeze(2)
+                mask = mask.unsqueeze(1)  # [b, 1, lq, lk]
+            else:
+                mask = None
+            
+            # Apply attention with mask
+            x = torch.nn.functional.scaled_dot_product_attention(
+                q, k, v, attn_mask=mask, is_causal=causal, dropout_p=dropout_p)
+            
+            # Transpose back and flatten
+            x = x.transpose(1, 2).contiguous()  # [b, lq, num_heads, head_dim]
+            x = x.view(b, lq, -1)  # [b, lq, num_heads * head_dim]
+        else:
+            # Simple case without variable-length sequences
+            q_seq_len = q.size(1)
+            k_seq_len = k.size(1)
+            q = q.transpose(1, 2).to(dtype)
+            k = k.transpose(1, 2).to(dtype)
+            v = v.transpose(1, 2).to(dtype)
+            x = torch.nn.functional.scaled_dot_product_attention(
+                q, k, v, is_causal=causal, dropout_p=dropout_p)
+            x = x.transpose(1, 2).contiguous()
+            x = x.view(b, q_seq_len, -1)
 
     # output
     return x.type(out_dtype)
