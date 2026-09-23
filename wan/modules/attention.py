@@ -108,8 +108,7 @@ def flash_attention(
             softmax_scale=softmax_scale,
             causal=causal,
             deterministic=deterministic)[0].unflatten(0, (b, lq))
-    else:
-        assert FLASH_ATTN_2_AVAILABLE
+    elif FLASH_ATTN_2_AVAILABLE:
         x = flash_attn.flash_attn_varlen_func(
             q=q,
             k=k,
@@ -125,6 +124,16 @@ def flash_attention(
             causal=causal,
             window_size=window_size,
             deterministic=deterministic).unflatten(0, (b, lq))
+    else:
+        # Fallback to standard attention when flash attention is not available
+        warnings.warn('Flash attention not available, using standard attention (slower)')
+        q = q.transpose(1, 2).to(dtype)
+        k = k.transpose(1, 2).to(dtype)
+        v = v.transpose(1, 2).to(dtype)
+        x = torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, is_causal=causal, dropout_p=dropout_p)
+        x = x.transpose(1, 2).contiguous()
+        x = x.unflatten(0, (b, lq))
 
     # output
     return x.type(out_dtype)
