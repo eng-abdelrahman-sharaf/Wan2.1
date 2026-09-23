@@ -136,6 +136,9 @@ def flash_attention(
             k = k.view(b, lk, -1).transpose(1, 2).to(dtype)
             v = v.view(b, lk, -1).transpose(1, 2).to(dtype)
         else:
+            # Handle case where q and k may have different sequence lengths (cross-attention)
+            q_seq_len = q.size(1)
+            k_seq_len = k.size(1)
             q = q.transpose(1, 2).to(dtype)
             k = k.transpose(1, 2).to(dtype)
             v = v.transpose(1, 2).to(dtype)
@@ -145,7 +148,8 @@ def flash_attention(
         if q_lens is not None or k_lens is not None:
             x = x.view(b, lq, -1)
         else:
-            x = x.unflatten(0, (b, lq))
+            # Reshape to match original q shape
+            x = x.view(b, q_seq_len, -1)
 
     # output
     return x.type(out_dtype)
