@@ -127,29 +127,23 @@ def flash_attention(
     else:
         # Fallback to standard attention when flash attention is not available
         warnings.warn('Flash attention not available, using standard attention (slower)')
-        # For variable-length sequences, we need to handle padding manually
-        # This is a simplified fallback that may not support all features
+        # Only support simple case where no variable-length sequences
         if q_lens is not None or k_lens is not None:
-            warnings.warn('Variable-length sequences not fully supported in fallback, using simple attention')
-            # Reshape back to batch format for standard attention
-            q = q.view(b, lq, -1).transpose(1, 2).to(dtype)
-            k = k.view(b, lk, -1).transpose(1, 2).to(dtype)
-            v = v.view(b, lk, -1).transpose(1, 2).to(dtype)
-        else:
-            # Handle case where q and k may have different sequence lengths (cross-attention)
-            q_seq_len = q.size(1)
-            k_seq_len = k.size(1)
-            q = q.transpose(1, 2).to(dtype)
-            k = k.transpose(1, 2).to(dtype)
-            v = v.transpose(1, 2).to(dtype)
+            raise NotImplementedError(
+                "Fallback attention does not support variable-length sequences. "
+                "Please install flash-attn: pip install flash-attn"
+            )
+        # Handle case where q and k may have different sequence lengths (cross-attention)
+        q_seq_len = q.size(1)
+        k_seq_len = k.size(1)
+        q = q.transpose(1, 2).to(dtype)
+        k = k.transpose(1, 2).to(dtype)
+        v = v.transpose(1, 2).to(dtype)
         x = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, is_causal=causal, dropout_p=dropout_p)
         x = x.transpose(1, 2).contiguous()
-        if q_lens is not None or k_lens is not None:
-            x = x.view(b, lq, -1)
-        else:
-            # Reshape to match original q shape
-            x = x.view(b, q_seq_len, -1)
+        # Reshape to match original q shape
+        x = x.view(b, q_seq_len, -1)
 
     # output
     return x.type(out_dtype)
